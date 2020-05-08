@@ -1,10 +1,8 @@
 #include "device.h"
 
 
-void device_self_diagnosticks(icm_20600 * icm_instance, nrf24l01p *nrf24_instance, motor * first_motor_instance, motor * second_motor_instance)
+void device_self_diagnosticks( nrf24l01p *nrf24_instance, motor * first_motor_instance, motor * second_motor_instance)
 {
-	// Icm-20600 diagnostics
-	add_to_mistakes_log(icm_20600_check_if_alive(icm_instance));
 
 	// NRF24 diagnostics
 	add_to_mistakes_log(nrf24_check_if_alive(nrf24_instance));

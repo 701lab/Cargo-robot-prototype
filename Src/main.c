@@ -8,7 +8,7 @@
 #include "device.h"
 
 
-// ********************************** //
+// ***************3******************* //
 // ****** Motor 1 declarations ****** //
 // ********************************** //
 motor motor1 =
@@ -66,13 +66,6 @@ position_control motor2_position_controller =
 
 
 // *********************************** //
-// ****** ICM-20600 declaration ****** //
-// *********************************** //
-// Пока оставлю, не уверен, чт одля данного проекта мне это нужно, но все же
-icm_20600_instance robot_imu = {.device_was_initialized = 0};
-int16_t icm_data[6] = { 0, 0, 0, 0, 0, 0 };
-
-// *********************************** //
 // ****** NRF24L01+ declaration ****** //
 // *********************************** //
 nrf24l01p robot_nrf24 = {.device_was_initialized = 0};
@@ -109,11 +102,6 @@ int main(void)
 	motor2_speed_cotroller.ki = 5000.0f;
 	motor2_position_controller.kp = 1.0f;
 	motor2_position_controller.position_precision = motor1_position_controller.position_precision;
-
-	// ****** ICM-20600 initialization ****** //
-	robot_imu.cs_high = gpiob12_high;
-	robot_imu.cs_low = gpiob12_low;
-	robot_imu.send_one_byte = spi2_write_single_byte;
 
 	// ****** NRF24L01+ initialization ****** //
 	robot_nrf24.ce_high = gpiob0_high;
