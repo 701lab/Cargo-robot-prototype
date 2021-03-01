@@ -8,7 +8,17 @@
 #include "device.h"
 
 
-// ***************3******************* //
+typedef enum joystic_directions
+{
+   MIDDLE = 0,
+   TOP = 1,
+   LEFT = 1,
+   BOTTOM = 2,
+   RIGHT = 2,
+}joystic_directions;
+
+
+// ********************************** //
 // ****** Motor 1 declarations ****** //
 // ********************************** //
 motor motor1 =
@@ -70,9 +80,9 @@ position_control motor2_position_controller =
 // *********************************** //
 nrf24l01p robot_nrf24 = {.device_was_initialized = 0};
 
-uint8_t nrf24_rx_address[5] = {0xAA,0xBB,0xCC,0xEE,0x15};	// green LEDs car
-//uint8_t nrf24_rx_address[5] = {0xAA,0xBB,0xCC,0xEE,0x25};	// blue LEDs car
-uint16_t nrf_input_data[5] = {0, 0, 0, 0, 0};
+//uint8_t nrf24_rx_address[5] = {0x11, 0x22, 0x33, 0x44, 0x55};	// green LEDs car
+uint8_t nrf24_rx_address[5] = {0x11, 0x22, 0x33, 0x44, 0x66};	// blue LEDs car
+uint8_t nrf_input_data[6] = {0, 0, 0, 0, 0, 0};
 
 uint32_t nrf24_data_has_been_captured = 0;
 uint32_t nrf24_safety_counter = 0;
@@ -110,9 +120,9 @@ int main(void)
 	robot_nrf24.csn_low = gpiob1_low;
 	robot_nrf24.spi_write_byte = spi1_write_single_byte;
 	robot_nrf24.frequency_channel = 45;
-	robot_nrf24.payload_size_in_bytes = 10;
+	robot_nrf24.payload_size_in_bytes = 6;
 	robot_nrf24.power_output = nrf24_pa_high;
-	robot_nrf24.data_rate = nrf24_1_mbps;
+	robot_nrf24.data_rate = nrf24_250_kbps;
 
 	// Init MCU peripherals
 	full_device_setup(yes, yes);
@@ -165,7 +175,7 @@ uint32_t speed_loop_call_counter = 0;
 
 #define SPEED_LOOP_FREQUENCY				20	// Times per second. Must be not bigger then SYSTICK_FREQUENCY.
 #define SPEED_LOOP_COUNTER_MAX_VALUE 		SYSTICK_FREQUENCY / SPEED_LOOP_FREQUENCY	// Times.
-#define SPEED_LOOP_PERIOD					(float)(SPEED_LOOP_FREQUENCY) / (float)(SYSTICK_FREQUENCY) // Seconds.
+#define SPEED_LOOP_PERIOD					1.0f / (float)(SPEED_LOOP_FREQUENCY) // Seconds.
 
 // *** Position controller setup variables *** //
 uint32_t position_loop_call_counter = 0;
@@ -182,10 +192,10 @@ void SysTick_Handler()
 	if ( speed_loop_call_counter == SPEED_LOOP_COUNTER_MAX_VALUE )	// 20 times per second
 	{
 		speed_loop_call_counter = 0;
-		motors_get_speed_by_incements(&motor1, SPEED_LOOP_PERIOD);
-		motors_get_speed_by_incements(&motor2, SPEED_LOOP_PERIOD);
-		float m1_speed_task = motors_speed_controller_handler(&motor1, SPEED_LOOP_PERIOD);
-		float m2_speed_task = motors_speed_controller_handler(&motor2, SPEED_LOOP_PERIOD);
+		motors_get_speed_by_incements(&motor1, 1.0f/SPEED_LOOP_FREQUENCY);
+		motors_get_speed_by_incements(&motor2, 1.0f/SPEED_LOOP_FREQUENCY);
+		float m1_speed_task = motors_speed_controller_handler(&motor1, 1.0f/SPEED_LOOP_FREQUENCY);
+		float m2_speed_task = motors_speed_controller_handler(&motor2, 1.0f/SPEED_LOOP_FREQUENCY);
 		motor1.set_pwm_duty_cycle((int32_t)m1_speed_task);
 		motor2.set_pwm_duty_cycle((int32_t)m2_speed_task);
 	}
@@ -230,65 +240,73 @@ void EXTI2_3_IRQHandler()
 	EXTI->FPR1 |= 0x04;
 
 	// Get new data
-	add_to_mistakes_log(nrf24_read_message(&robot_nrf24, nrf_input_data, 10));
+	add_to_mistakes_log(nrf24_read_message(&robot_nrf24, nrf_input_data, 6));
 	GPIOD->ODR |= 0x01;
 
 	nrf24_data_has_been_captured = 1;
+
+    uint8_t right_joystick_top_bottom = (nrf_input_data[0] & 0x03);
+    uint8_t right_joystick_left_right = (nrf_input_data[0] & 0x0C) >> 2;
+    uint8_t left_joystick_left_right = (nrf_input_data[0] & 0x30) >> 4;
+    uint8_t left_joystick_top_bottom = (nrf_input_data[0] & 0xC0) >> 6;
+
+    uint8_t left_forward_button_is_pressed = (nrf_input_data[1] & 0x10) >> 4;
+    uint8_t right_forward_button_is_pressed = (nrf_input_data[1] & 0x20) >> 5;
+
 	float left_motor_speed_task = 0.0f;
 	float left_motor_boost = 0.0f;
 	float right_motor_speed_task = 0.0f;
 	float right_motor_boost = 0.0f;
 
-	// Check for buttons press
-	if((nrf_input_data[4] & 0x14) == 0x14){ // means, that top right button is unpressed
-		// Do nothing
-	}
-	else if((nrf_input_data[4] & 0x04) == 0){
-		left_motor_boost = 0.3f;
-		right_motor_boost = 0.3f;
-	}
-	else{
-		left_motor_boost = 0.6f;
-		right_motor_boost = 0.6f;
-	}
+	// Check for buttons press and boost the movement
+    if ( left_forward_button_is_pressed )
+    { // means, that top right button is unpressed
+        left_motor_boost = 0.3f;
+        right_motor_boost = 0.3f;
+    }
+    else if ( right_forward_button_is_pressed )
+    {
+        left_motor_boost = 0.6f;
+        right_motor_boost = 0.6f;
+    }
 
-	// Evaluate the speed tasks
-	if(nrf_input_data[2] < 1000 /*means it up*/ && nrf_input_data[1] < 3000 && nrf_input_data[1] > 1000) // Forward
-	{
-		left_motor_speed_task = 1.0f + left_motor_boost;
-		right_motor_speed_task = 1.0f + right_motor_boost;
-	}
-	else if(nrf_input_data[2] < 1000 /*means it up*/ && nrf_input_data[1] < 1000)	// Forward left
-	{
-		left_motor_speed_task = 0.2f + left_motor_boost;
-		right_motor_speed_task = 1.0f + right_motor_boost;
-	}
-	else if(nrf_input_data[2] > 1000 && nrf_input_data[2] < 3000 && nrf_input_data[1] < 1000)	// Turn left
-	{
-		left_motor_speed_task = -0.6f - left_motor_boost;
-		right_motor_speed_task = 0.6f + right_motor_boost;
-	}
-	else if(nrf_input_data[2] > 3000 && nrf_input_data[1] < 1000)	// Backward left
-	{
-		left_motor_speed_task = -0.2f - left_motor_boost;
+    // Evaluate the speed tasks
+    if ( right_joystick_top_bottom == TOP && left_joystick_left_right == MIDDLE ) // Forward
+    {
+        left_motor_speed_task = 1.0f + left_motor_boost;
+        right_motor_speed_task = 1.0f + right_motor_boost;
+    }
+    else if ( right_joystick_top_bottom == TOP && left_joystick_left_right == LEFT ) // Forward left
+    {
+        left_motor_speed_task = 0.2f + left_motor_boost;
+        right_motor_speed_task = 1.0f + right_motor_boost;
+    }
+    else if ( right_joystick_top_bottom == MIDDLE && left_joystick_left_right == LEFT )	// Turn left
+    {
+        left_motor_speed_task = -0.6f - left_motor_boost;
+        right_motor_speed_task = 0.6f + right_motor_boost;
+    }
+    else if ( right_joystick_top_bottom == BOTTOM && left_joystick_left_right == LEFT )	// Backward left
+    {
+        left_motor_speed_task = -0.2f - left_motor_boost;
+        right_motor_speed_task = -1.0f - right_motor_boost;
+    }
+    else if ( right_joystick_top_bottom == BOTTOM && left_joystick_left_right == MIDDLE) // Backward
+    {
+        left_motor_speed_task = -1.0f - left_motor_boost;
 		right_motor_speed_task = -1.0f - right_motor_boost;
 	}
-	else if(nrf_input_data[2] > 3000  && nrf_input_data[1] < 3000 && nrf_input_data[1] > 1000)	// Backward
-	{
-		left_motor_speed_task = -1.0f - left_motor_boost;
-		right_motor_speed_task = -1.0f - right_motor_boost;
-	}
-	else if(nrf_input_data[2] > 3000 && nrf_input_data[1] > 3000)	// Backward right
+	else if(right_joystick_top_bottom == BOTTOM && left_joystick_left_right == RIGHT) // Backward right
 	{
 		left_motor_speed_task = -1.0f - left_motor_boost;
 		right_motor_speed_task = -0.2f - right_motor_boost;
 	}
-	else if(nrf_input_data[2] < 1000 && nrf_input_data[1] > 3000)	// Forward right
+	else if(right_joystick_top_bottom == TOP && left_joystick_left_right == RIGHT) // Forward right
 	{
 		left_motor_speed_task = 1.0f + left_motor_boost;
 		right_motor_speed_task = 0.2f + right_motor_boost;
 	}
-	else if(nrf_input_data[2] > 1000 && nrf_input_data[2] < 3000 && nrf_input_data[1] > 3000)	// Turn right
+	else if(right_joystick_top_bottom == MIDDLE && left_joystick_left_right == RIGHT)	// Turn right
 	{
 		left_motor_speed_task = 0.6f + left_motor_boost;
 		right_motor_speed_task = -0.6f - right_motor_boost;
